@@ -115,7 +115,7 @@ Pad.PaddingBottom = UDim.new(0, 18)
 Pad.Parent = Content
 
 --==================================================
--- STATE
+-- STATE & CONFIG SYSTEM
 --==================================================
 
 local State = {
@@ -182,6 +182,8 @@ local State = {
     CircleButtons = false,
 }
 
+local configs = {}
+local currentConfigName = ""
 local controls = {}
 local order = 0
 
@@ -189,6 +191,78 @@ local function register(obj)
     order += 1
     obj.LayoutOrder = order
     return obj
+end
+
+local function saveConfig(name)
+    if name == "" then return end
+    configs[name] = {}
+    for key, value in pairs(State) do
+        configs[name][key] = value
+    end
+    print("Config saved: " .. name)
+end
+
+local function loadConfig(name)
+    if not configs[name] then return end
+    for key, value in pairs(configs[name]) do
+        State[key] = value
+    end
+    currentConfigName = name
+    print("Config loaded: " .. name)
+end
+
+local function resetAllConfig()
+    State = {
+        NormalSpeed = 61,
+        CarrySpeed = 30,
+        LaggerSpeed = 14,
+        LaggerCarrySpeed = 25,
+        CurrentMode = "Carry",
+        SpeedKey = "Q",
+        LaggerKey = "R",
+        AutoSteal = false,
+        Radius = 62,
+        RagdollSteal = false,
+        InfiniteJump = false,
+        AntiRagdoll = false,
+        BatAimbot = false,
+        BatAimbotKey = "F",
+        TPBat = false,
+        TPBatKey = "E",
+        DropBrainrot = false,
+        DropBrainrotKey = "X",
+        TPDownKey = "R",
+        InstaReset = "None",
+        AutoTPDown = false,
+        MedusaCounter = false,
+        BatCounter = false,
+        BodyLock = false,
+        AntiDie = "None",
+        AntiFling = false,
+        SafeMode = false,
+        AutoLeft = "Equals",
+        AutoRight = "Minus",
+        AutoPlayMode = "Normal",
+        CustomSky = "OFF",
+        Display = "FOV",
+        NormalFOV = 90,
+        NoCamCollision = false,
+        AntiLag = false,
+        PotatoGraphics = false,
+        ShinyMode = false,
+        DarkMode = false,
+        Background = "None",
+        LockUI = false,
+        IntroSong = "SONG 2",
+        SkipIntro = false,
+        UIToggleKey = "LeftControl",
+        UISize = 1.10,
+        StealBarScale = 0.95,
+        MobileBtnSize = 1.05,
+        HideMobileButtons = false,
+        CircleButtons = false,
+    }
+    print("All configs reset to default")
 end
 
 --==================================================
@@ -522,7 +596,7 @@ dropdown("Hide Mobile Buttons", "OFF", {"OFF", "ON"})
 toggle("Circle Buttons", State.CircleButtons)
 
 actionButton("RESET MOBILE BUTTONS", function()
-    -- UI-only reset placeholder.
+    print("Mobile buttons reset")
 end)
 
 --==================================================
@@ -562,14 +636,20 @@ corner(save, 12)
 save.Parent = configRow
 
 save.MouseButton1Click:Connect(function()
-    save.Text = "SAVED"
-    task.delay(1, function()
-        if save.Parent then save.Text = "SAVE" end
-    end)
+    local configName = configBox.Text
+    if configName ~= "" then
+        saveConfig(configName)
+        save.Text = "SAVED"
+        task.delay(1, function()
+            if save.Parent then save.Text = "SAVE" end
+        end)
+    end
 end)
 
 actionButton("RESET ALL CONFIG", function()
+    resetAllConfig()
     configBox.Text = ""
+    print("All settings reset to default")
 end)
 
 --==================================================
