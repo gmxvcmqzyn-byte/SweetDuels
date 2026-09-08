@@ -128,6 +128,7 @@ local Settings = {
     LaggerCarrySpeed = 25,
     CurrentMode = "Carry",
     speedEnabled = false,
+    laggerEnabled = false,
     SpeedKey = "Q",
     LaggerKey = "R",
 
@@ -197,6 +198,7 @@ local Settings = {
 local configs = {}
 local order = 0
 local UIControls = {}
+local spacebarHeld = false
 
 local function register(obj)
     order += 1
@@ -208,22 +210,38 @@ end
 -- GAME LOOPS
 --==================================================
 
--- SPEED LOOP
+-- SPEED LOOP - Move in fixed direction (not mouse direction)
 RunService.RenderStepped:Connect(function()
-    if Settings.speedEnabled and character and humanoidRootPart and humanoid.Health > 0 then
-        local speed = Settings.CurrentMode == "Carry" and Settings.CarrySpeed or Settings.NormalSpeed
-        local camera = workspace.CurrentCamera
-        local moveDirection = (camera.CFrame.LookVector * Vector3.new(1, 0, 1)).Unit
+    if (Settings.speedEnabled or Settings.laggerEnabled) and character and humanoidRootPart and humanoid.Health > 0 then
+        local speed
+        
+        if Settings.laggerEnabled then
+            speed = Settings.CurrentMode == "Carry" and Settings.LaggerCarrySpeed or Settings.LaggerSpeed
+        else
+            speed = Settings.CurrentMode == "Carry" and Settings.CarrySpeed or Settings.NormalSpeed
+        end
+        
+        -- Move forward (character's forward direction, not mouse)
+        local moveDirection = humanoidRootPart.CFrame.LookVector
         humanoidRootPart.Velocity = moveDirection * speed + Vector3.new(0, humanoidRootPart.Velocity.Y, 0)
     end
 end)
 
--- INFINITE JUMP LOOP
-humanoid.StateChanged:Connect(function(oldState, newState)
-    if Settings.InfiniteJump and newState == Enum.HumanoidStateType.Landed then
-        humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+-- INFINITE JUMP - Hold spacebar to go up, release to drop
+local jumpConnection
+local function updateInfiniteJumpLoop()
+    if jumpConnection then jumpConnection:Disconnect() end
+    
+    if Settings.InfiniteJump then
+        jumpConnection = RunService.Heartbeat:Connect(function()
+            if spacebarHeld and character and humanoid.Health > 0 then
+                humanoidRootPart.Velocity = Vector3.new(humanoidRootPart.Velocity.X, 50, humanoidRootPart.Velocity.Z)
+            end
+        end)
+    else
+        if jumpConnection then jumpConnection:Disconnect() end
     end
-end)
+end
 
 -- ANTI RAGDOLL LOOP
 RunService.Heartbeat:Connect(function()
@@ -386,6 +404,10 @@ local function toggle(text, settingKey)
     t.MouseButton1Click:Connect(function()
         Settings[settingKey] = not Settings[settingKey]
         render()
+        
+        if settingKey == "InfiniteJump" then
+            updateInfiniteJumpLoop()
+        end
     end)
 
     render()
@@ -528,7 +550,7 @@ toggle("Ragdoll Steal", "RagdollSteal")
 --==================================================
 
 section("MOVEMENT CONFIGURATION")
-dropdown("Infinite Jump", "InfiniteJump", {"OFF", "ON"})
+toggle("Infinite Jump", "InfiniteJump")
 toggle("Anti Ragdoll", "AntiRagdoll")
 
 --==================================================
@@ -711,16 +733,36 @@ end)
 UIS.InputBegan:Connect(function(input, processed)
     if processed then return end
     
+    -- Spacebar for infinite jump (hold)
+    if input.KeyCode == Enum.KeyCode.Space then
+        spacebarHeld = true
+    end
+    
     -- Speed toggle with Q key
     if input.KeyCode.Name == Settings.SpeedKey then
         Settings.speedEnabled = not Settings.speedEnabled
+        Settings.laggerEnabled = false
         print(Settings.speedEnabled and "⚡ SPEED ENABLED - Moving at " .. (Settings.CurrentMode == "Carry" and Settings.CarrySpeed or Settings.NormalSpeed) .. " studs/s" or "⚡ SPEED DISABLED")
+    end
+    
+    -- Lagger toggle with R key
+    if input.KeyCode.Name == Settings.LaggerKey then
+        Settings.laggerEnabled = not Settings.laggerEnabled
+        Settings.speedEnabled = false
+        print(Settings.laggerEnabled and "🐢 LAGGER MODE - Moving at " .. (Settings.CurrentMode == "Carry" and Settings.LaggerCarrySpeed or Settings.LaggerSpeed) .. " studs/s" or "🐢 LAGGER MODE DISABLED")
     end
     
     -- UI toggle with LeftControl
     if input.KeyCode == Enum.KeyCode.LeftControl then
         Main.Visible = not Main.Visible
         print(Main.Visible and "🎨 UI VISIBLE" or "🎨 UI HIDDEN")
+    end
+end)
+
+UIS.InputEnded:Connect(function(input, processed)
+    -- Spacebar released
+    if input.KeyCode == Enum.KeyCode.Space then
+        spacebarHeld = false
     end
 end)
 
@@ -764,7 +806,10 @@ end)
 print("════════════════════════════════════════")
 print("🍬 SWEETDUELS - FULLY LOADED")
 print("════════════════════════════════════════")
-print("⚡ PRESS Q - Toggle Speed")
+print("⚡ PRESS Q - Toggle Normal Speed")
+print("🐢 PRESS R - Toggle Lagger Speed")
+print("📈 HOLD SPACEBAR - Fly Up (Release to Drop)")
 print("🎨 PRESS LeftControl - Toggle UI")
-print("✓ ALL CONTROLS WORKING - 100% FUNCTIONAL")
+print("✓ Speed: Forward Direction Only (No Mouse)")
+print("✓ Mode Switching: Normal ↔ Carry Active")
 print("════════════════════════════════════════")
