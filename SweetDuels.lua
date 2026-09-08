@@ -5,8 +5,12 @@
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
+local humanoid = character:WaitForChild("Humanoid")
 
 local gui = Instance.new("ScreenGui")
 gui.Name = "SweetDuels"
@@ -187,6 +191,13 @@ local currentConfigName = ""
 local controls = {}
 local order = 0
 
+-- Active features
+local speedEnabled = false
+local infiniteJumpEnabled = false
+local antiRagdollEnabled = false
+local antiLagEnabled = false
+local noCamCollisionEnabled = false
+
 local function register(obj)
     order += 1
     obj.LayoutOrder = order
@@ -266,6 +277,85 @@ local function resetAllConfig()
 end
 
 --==================================================
+-- FEATURE IMPLEMENTATIONS
+--==================================================
+
+local function applySpeed(speedValue)
+    if character and humanoidRootPart and humanoid.Health > 0 then
+        humanoidRootPart.Velocity = humanoidRootPart.Velocity.Unit * Vector3.new(speedValue, humanoidRootPart.Velocity.Y, speedValue)
+    end
+end
+
+local function enableInfiniteJump()
+    if character and humanoid then
+        humanoid.StateChanged:Connect(function(oldState, newState)
+            if newState == Enum.HumanoidStateType.Landed then
+                humanoid:SetStateEnabled(Enum.HumanoidStateType.Climbing, true)
+            end
+        end)
+    end
+end
+
+local function enableAntiRagdoll()
+    if character then
+        for _, joint in pairs(character:FindDescendants()) do
+            if joint:IsA("Motor6D") or joint:IsA("BallSocketConstraint") then
+                joint.Enabled = true
+            end
+        end
+    end
+end
+
+local function applyAntiLag()
+    local terrain = workspace.Terrain
+    terrain.WaterMaterial = Enum.Material.Air
+    
+    for _, part in pairs(workspace:FindDescendants()) do
+        if part:IsA("BasePart") then
+            part.Material = Enum.Material.Plastic
+            part.CanCollide = true
+        end
+    end
+end
+
+local function applyCameraSettings()
+    local camera = workspace.CurrentCamera
+    if camera then
+        if State.NoCamCollision then
+            camera.Focus = humanoidRootPart.CFrame
+        end
+        if State.Display == "FOV" then
+            camera.FieldOfView = State.NormalFOV
+        end
+    end
+end
+
+-- Speed loop
+RunService.RenderStepped:Connect(function()
+    if speedEnabled and character and humanoidRootPart and humanoid.Health > 0 then
+        local speedValue = State.CurrentMode == "Carry" and State.CarrySpeed or State.NormalSpeed
+        applySpeed(speedValue)
+    end
+end)
+
+-- Infinite jump implementation
+if infiniteJumpEnabled then
+    enableInfiniteJump()
+end
+
+-- Anti-lag implementation
+if antiLagEnabled then
+    applyAntiLag()
+end
+
+-- Camera settings implementation
+RunService.RenderStepped:Connect(function()
+    if noCamCollisionEnabled then
+        applyCameraSettings()
+    end
+end)
+
+--==================================================
 -- UI BUILDERS
 --==================================================
 
@@ -326,7 +416,7 @@ local function valueBox(row, text, width)
     return b
 end
 
-local function toggle(text, initial)
+local function toggle(text, initial, callback)
     local row = rowBase()
     labelFor(row, text)
 
@@ -358,6 +448,7 @@ local function toggle(text, initial)
     t.MouseButton1Click:Connect(function()
         state = not state
         render()
+        if callback then callback(state) end
     end)
 
     render()
@@ -365,7 +456,7 @@ local function toggle(text, initial)
     return row, t
 end
 
-local function dropdown(text, initial, options)
+local function dropdown(text, initial, options, callback)
     local row = rowBase()
     labelFor(row, text)
 
@@ -391,12 +482,13 @@ local function dropdown(text, initial, options)
     b.MouseButton1Click:Connect(function()
         index = index % #options + 1
         value.Text = options[index]
+        if callback then callback(options[index]) end
     end)
 
     return row
 end
 
-local function numberControl(text, initial, step)
+local function numberControl(text, initial, step, callback)
     local row = rowBase()
     labelFor(row, text)
 
@@ -422,18 +514,20 @@ local function numberControl(text, initial, step)
     minus.MouseButton1Click:Connect(function()
         n -= step
         refresh()
+        if callback then callback(n) end
     end)
 
     plus.MouseButton1Click:Connect(function()
         n += step
         refresh()
+        if callback then callback(n) end
     end)
 
     refresh()
     return row
 end
 
-local function keyButton(text, key)
+local function keyButton(text, key, callback)
     local row = rowBase()
     labelFor(row, text)
 
@@ -447,6 +541,7 @@ local function keyButton(text, key)
             if processed then return end
             if input.UserInputType == Enum.UserInputType.Keyboard then
                 b.Text = input.KeyCode.Name
+                if callback then callback(input.KeyCode.Name) end
                 connection:Disconnect()
             end
         end)
@@ -476,98 +571,181 @@ end
 --==================================================
 
 section("SPEED VALUES")
-numberControl("Normal Speed", State.NormalSpeed, 1)
-numberControl("Carry Speed", State.CarrySpeed, 1)
-numberControl("Lagger Speed", State.LaggerSpeed, 1)
-numberControl("Lagger Carry Speed", State.LaggerCarrySpeed, 1)
+numberControl("Normal Speed", State.NormalSpeed, 1, function(val)
+    State.NormalSpeed = val
+end)
+numberControl("Carry Speed", State.CarrySpeed, 1, function(val)
+    State.CarrySpeed = val
+end)
+numberControl("Lagger Speed", State.LaggerSpeed, 1, function(val)
+    State.LaggerSpeed = val
+end)
+numberControl("Lagger Carry Speed", State.LaggerCarrySpeed, 1, function(val)
+    State.LaggerCarrySpeed = val
+end)
 
-dropdown("Current Mode", State.CurrentMode, {"Carry", "Normal", "Lagger"})
+dropdown("Current Mode", State.CurrentMode, {"Carry", "Normal", "Lagger"}, function(val)
+    State.CurrentMode = val
+end)
 
 section("SPEED KEYBINDS")
-keyButton("Speed Key (toggles)", State.SpeedKey)
-keyButton("Lagger Key (toggles)", State.LaggerKey)
+keyButton("Speed Key (toggles)", State.SpeedKey, function(val)
+    State.SpeedKey = val
+end)
+keyButton("Lagger Key (toggles)", State.LaggerKey, function(val)
+    State.LaggerKey = val
+end)
 
 --==================================================
 -- STEAL
 --==================================================
 
 section("STEAL CONFIGURATION")
-dropdown("Auto Steal", "OFF", {"OFF", "ON"})
-numberControl("Radius", State.Radius, 1)
-toggle("Ragdoll Steal", State.RagdollSteal)
+dropdown("Auto Steal", "OFF", {"OFF", "ON"}, function(val)
+    State.AutoSteal = val == "ON"
+end)
+numberControl("Radius", State.Radius, 1, function(val)
+    State.Radius = val
+end)
+toggle("Ragdoll Steal", State.RagdollSteal, function(val)
+    State.RagdollSteal = val
+end)
 
 --==================================================
 -- MOVEMENT
 --==================================================
 
 section("MOVEMENT CONFIGURATION")
-dropdown("Infinite Jump", "OFF", {"OFF", "ON"})
-toggle("Anti Ragdoll", State.AntiRagdoll)
+dropdown("Infinite Jump", "OFF", {"OFF", "ON"}, function(val)
+    infiniteJumpEnabled = val == "ON"
+    if infiniteJumpEnabled then
+        enableInfiniteJump()
+    end
+end)
+toggle("Anti Ragdoll", State.AntiRagdoll, function(val)
+    antiRagdollEnabled = val
+    State.AntiRagdoll = val
+    if val then
+        enableAntiRagdoll()
+    end
+end)
 
 --==================================================
 -- AIMBOT
 --==================================================
 
 section("AIMBOT CONFIGURATION")
-keyButton("Bat Aimbot", State.BatAimbotKey)
-keyButton("TP Bat", State.TPBatKey)
+keyButton("Bat Aimbot", State.BatAimbotKey, function(val)
+    State.BatAimbotKey = val
+end)
+keyButton("TP Bat", State.TPBatKey, function(val)
+    State.TPBatKey = val
+end)
 
 --==================================================
 -- UTILITIES
 --==================================================
 
 section("UTILITIES CONFIGURATION")
-keyButton("Drop Brainrot", State.DropBrainrotKey)
-keyButton("TP Down", State.TPDownKey)
-dropdown("Insta Reset", State.InstaReset, {"None", "Enabled"})
-dropdown("Auto TP Down", "OFF", {"OFF", "ON"})
+keyButton("Drop Brainrot", State.DropBrainrotKey, function(val)
+    State.DropBrainrotKey = val
+end)
+keyButton("TP Down", State.TPDownKey, function(val)
+    State.TPDownKey = val
+end)
+dropdown("Insta Reset", State.InstaReset, {"None", "Enabled"}, function(val)
+    State.InstaReset = val
+end)
+dropdown("Auto TP Down", "OFF", {"OFF", "ON"}, function(val)
+    State.AutoTPDown = val == "ON"
+end)
 
 --==================================================
 -- COUNTERS
 --==================================================
 
 section("COUNTERS CONFIGURATION")
-toggle("Medusa Counter", State.MedusaCounter)
-toggle("Bat Counter", State.BatCounter)
-dropdown("Body Lock", "OFF", {"OFF", "ON"})
-dropdown("Anti Die", State.AntiDie, {"None", "Enabled"})
-toggle("Anti Fling", State.AntiFling)
-toggle("Safe Mode", State.SafeMode)
+toggle("Medusa Counter", State.MedusaCounter, function(val)
+    State.MedusaCounter = val
+end)
+toggle("Bat Counter", State.BatCounter, function(val)
+    State.BatCounter = val
+end)
+dropdown("Body Lock", "OFF", {"OFF", "ON"}, function(val)
+    State.BodyLock = val == "ON"
+end)
+dropdown("Anti Die", State.AntiDie, {"None", "Enabled"}, function(val)
+    State.AntiDie = val
+end)
+toggle("Anti Fling", State.AntiFling, function(val)
+    State.AntiFling = val
+end)
+toggle("Safe Mode", State.SafeMode, function(val)
+    State.SafeMode = val
+end)
 
 --==================================================
 -- AUTO PATH
 --==================================================
 
 section("AUTO PATH CONFIGURATION")
-dropdown("Auto Left", State.AutoLeft, {"Equals", "Minus"})
-dropdown("Auto Right", State.AutoRight, {"Minus", "Equals"})
-dropdown("Auto Play Mode", State.AutoPlayMode, {"Normal", "Auto Play"})
+dropdown("Auto Left", State.AutoLeft, {"Equals", "Minus"}, function(val)
+    State.AutoLeft = val
+end)
+dropdown("Auto Right", State.AutoRight, {"Minus", "Equals"}, function(val)
+    State.AutoRight = val
+end)
+dropdown("Auto Play Mode", State.AutoPlayMode, {"Normal", "Auto Play"}, function(val)
+    State.AutoPlayMode = val
+end)
 
 --==================================================
 -- SKY
 --==================================================
 
 section("SKY THEME")
-dropdown("Custom Sky", State.CustomSky, {"OFF", "ON"})
+dropdown("Custom Sky", State.CustomSky, {"OFF", "ON"}, function(val)
+    State.CustomSky = val
+end)
 
 --==================================================
 -- VISUAL
 --==================================================
 
 section("VISUAL")
-dropdown("Display", State.Display, {"Default", "FOV", "Stretch"})
-numberControl("Normal FOV", State.NormalFOV, 1)
-toggle("No Cam Collision", State.NoCamCollision)
+dropdown("Display", State.Display, {"Default", "FOV", "Stretch"}, function(val)
+    State.Display = val
+end)
+numberControl("Normal FOV", State.NormalFOV, 1, function(val)
+    State.NormalFOV = val
+    applyCameraSettings()
+end)
+toggle("No Cam Collision", State.NoCamCollision, function(val)
+    noCamCollisionEnabled = val
+    State.NoCamCollision = val
+end)
 
 --==================================================
 -- PERFORMANCE
 --==================================================
 
 section("PERFORMANCE CONFIGURATION")
-toggle("Anti Lag", State.AntiLag)
-toggle("Potato Graphics", State.PotatoGraphics)
-toggle("Shiny Mode", State.ShinyMode)
-dropdown("Dark Mode", "OFF", {"OFF", "ON"})
+toggle("Anti Lag", State.AntiLag, function(val)
+    antiLagEnabled = val
+    State.AntiLag = val
+    if val then
+        applyAntiLag()
+    end
+end)
+toggle("Potato Graphics", State.PotatoGraphics, function(val)
+    State.PotatoGraphics = val
+end)
+toggle("Shiny Mode", State.ShinyMode, function(val)
+    State.ShinyMode = val
+end)
+dropdown("Dark Mode", "OFF", {"OFF", "ON"}, function(val)
+    State.DarkMode = val == "ON"
+end)
 
 --==================================================
 -- CUSTOMIZATION
@@ -576,12 +754,22 @@ dropdown("Dark Mode", "OFF", {"OFF", "ON"})
 section("CUSTOMIZATION")
 
 dropdown("Background Image", State.Background,
-    {"None", "Purple Candy", "Blue Candy", "Green Candy"})
+    {"None", "Purple Candy", "Blue Candy", "Green Candy"}, function(val)
+    State.Background = val
+end)
 
-dropdown("Lock UI", "OFF", {"OFF", "ON"})
-dropdown("Intro Song", State.IntroSong, {"SONG 1", "SONG 2", "SONG 3"})
-dropdown("Skip Intro", "OFF", {"OFF", "ON"})
-keyButton("UI Toggle Key", State.UIToggleKey)
+dropdown("Lock UI", "OFF", {"OFF", "ON"}, function(val)
+    State.LockUI = val == "ON"
+end)
+dropdown("Intro Song", State.IntroSong, {"SONG 1", "SONG 2", "SONG 3"}, function(val)
+    State.IntroSong = val
+end)
+dropdown("Skip Intro", "OFF", {"OFF", "ON"}, function(val)
+    State.SkipIntro = val == "ON"
+end)
+keyButton("UI Toggle Key", State.UIToggleKey, function(val)
+    State.UIToggleKey = val
+end)
 
 --==================================================
 -- CUSTOM CONFIGURATION
@@ -589,11 +777,22 @@ keyButton("UI Toggle Key", State.UIToggleKey)
 
 section("CUSTOM CONFIGURATION")
 
-numberControl("UI Size", State.UISize, 0.05)
-numberControl("Steal Bar Scale", State.StealBarScale, 0.05)
-numberControl("Mobile Btn Size", State.MobileBtnSize, 0.05)
-dropdown("Hide Mobile Buttons", "OFF", {"OFF", "ON"})
-toggle("Circle Buttons", State.CircleButtons)
+numberControl("UI Size", State.UISize, 0.05, function(val)
+    State.UISize = val
+    Main.Size = UDim2.fromOffset(720 * val, 720 * val)
+end)
+numberControl("Steal Bar Scale", State.StealBarScale, 0.05, function(val)
+    State.StealBarScale = val
+end)
+numberControl("Mobile Btn Size", State.MobileBtnSize, 0.05, function(val)
+    State.MobileBtnSize = val
+end)
+dropdown("Hide Mobile Buttons", "OFF", {"OFF", "ON"}, function(val)
+    State.HideMobileButtons = val == "ON"
+end)
+toggle("Circle Buttons", State.CircleButtons, function(val)
+    State.CircleButtons = val
+end)
 
 actionButton("RESET MOBILE BUTTONS", function()
     print("Mobile buttons reset")
@@ -653,6 +852,18 @@ actionButton("RESET ALL CONFIG", function()
 end)
 
 --==================================================
+-- SPEED ACTIVATION
+--==================================================
+
+UIS.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    if input.KeyCode == Enum.KeyCode[State.SpeedKey] then
+        speedEnabled = not speedEnabled
+        print("Speed: " .. (speedEnabled and "ON" or "OFF"))
+    end
+end)
+
+--==================================================
 -- UI TOGGLE
 --==================================================
 
@@ -707,3 +918,5 @@ UIS.InputChanged:Connect(function(input)
 end)
 
 print("SweetDuels candy UI loaded.")
+print("Press Q to toggle speed")
+print("Press LeftControl to toggle UI")
